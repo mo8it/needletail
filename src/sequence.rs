@@ -243,6 +243,7 @@ pub trait Sequence<'a> {
     /// // Uridine residues are converted to thymidine
     /// assert_eq!(b"ACGU".normalize(true).as_ref(), b"ACGT");
     /// ```
+    #[inline]
     fn normalize(&'a self, iupac: bool) -> Cow<'a, [u8]> {
         normalize(self.sequence(), iupac)
     }
