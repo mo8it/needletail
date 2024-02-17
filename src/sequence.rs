@@ -16,11 +16,11 @@ use crate::kmer::{CanonicalKmers, Kmers};
 ///  - some other punctuation is converted to gaps
 ///  - IUPAC bases may be converted to N's depending on the parameter passed in
 ///  - everything else is considered a N
-pub fn normalize(seq: &[u8], allow_iupac: bool) -> Option<Vec<u8>> {
-    let mut buf: Vec<u8> = Vec::with_capacity(seq.len());
-    let mut changed: bool = false;
+pub fn normalize(seq: &[u8], allow_iupac: bool) -> Cow<'_, [u8]> {
+    let mut buf = Vec::new();
+    let mut changed = false;
 
-    for n in seq.iter() {
+    for (ind, n) in seq.iter().enumerate() {
         let (new_char, char_changed) = match (*n, allow_iupac) {
             c @ (b'A', _)
             | c @ (b'C', _)
@@ -61,15 +61,23 @@ pub fn normalize(seq: &[u8], allow_iupac: bool) -> Option<Vec<u8>> {
             // everything else is an N
             _ => (b'N', true),
         };
-        changed = changed || char_changed;
-        if new_char != b' ' {
-            buf.push(new_char);
+        if changed {
+            if new_char != b' ' {
+                buf.push(new_char);
+            }
+        } else if char_changed {
+            changed = true;
+            buf.reserve_exact(seq.len());
+            buf.extend_from_slice(&seq[..ind]);
+            if new_char != b' ' {
+                buf.push(new_char);
+            }
         }
     }
     if changed {
-        Some(buf)
+        Cow::Owned(buf)
     } else {
-        None
+        Cow::Borrowed(seq)
     }
 }
 
@@ -236,11 +244,7 @@ pub trait Sequence<'a> {
     /// assert_eq!(b"ACGU".normalize(true).as_ref(), b"ACGT");
     /// ```
     fn normalize(&'a self, iupac: bool) -> Cow<'a, [u8]> {
-        if let Some(s) = normalize(self.sequence(), iupac) {
-            s.into()
-        } else {
-            self.sequence().into()
-        }
+        normalize(self.sequence(), iupac)
     }
 
     /// [Nucleic Acids] Returns an iterator over the sequence that skips
@@ -326,21 +330,13 @@ mod tests {
 
     #[test]
     fn test_normalize() {
-        assert_eq!(normalize(b"ACGTU", false), Some(b"ACGTT".to_vec()));
-        assert_eq!(normalize(b"acgtu", false), Some(b"ACGTT".to_vec()));
-
-        assert_eq!(normalize(b"N.N-N~N N", false), Some(b"N-N-N-NN".to_vec()));
-
-        assert_eq!(normalize(b"BDHVRYSWKM", true), None);
-        assert_eq!(normalize(b"bdhvryswkm", true), Some(b"BDHVRYSWKM".to_vec()));
-        assert_eq!(
-            normalize(b"BDHVRYSWKM", false),
-            Some(b"NNNNNNNNNN".to_vec())
-        );
-        assert_eq!(
-            normalize(b"bdhvryswkm", false),
-            Some(b"NNNNNNNNNN".to_vec())
-        );
+        assert_eq!(normalize(b"ACGTU", false).as_ref(), b"ACGTT");
+        assert_eq!(normalize(b"acgtu", false).as_ref(), b"ACGTT");
+        assert_eq!(normalize(b"N.N-N~N N", false).as_ref(), b"N-N-N-NN");
+        assert_eq!(normalize(b"BDHVRYSWKM", true).as_ref(), b"BDHVRYSWKM");
+        assert_eq!(normalize(b"bdhvryswkm", true).as_ref(), b"BDHVRYSWKM");
+        assert_eq!(normalize(b"BDHVRYSWKM", false).as_ref(), b"NNNNNNNNNN");
+        assert_eq!(normalize(b"bdhvryswkm", false).as_ref(), b"NNNNNNNNNN");
     }
 
     #[test]
